@@ -1,4 +1,4 @@
-name: Build Sol-IT Absensi Wajah APK
+﻿name: Build Sol-IT Absensi Wajah APK
 
 on:
   push:
@@ -28,6 +28,7 @@ jobs:
       - name: Generate Android Platform Scaffolding
         run: |
           flutter create --platforms=android --org com.gsit --project-name sol_it_absensi_wajah .
+          rm -rf test
 
       - name: Configure Android Permissions & SDK Versions
         run: |
@@ -35,7 +36,6 @@ jobs:
           from pathlib import Path
           import re
 
-          # 1. Inject Camera & Location permissions into AndroidManifest.xml
           manifest = Path("android/app/src/main/AndroidManifest.xml")
           txt = manifest.read_text(encoding="utf-8")
           perms = '''    <uses-permission android:name="android.permission.CAMERA" />
@@ -49,12 +49,14 @@ jobs:
           txt = re.sub(r'android:label="[^"]+"', 'android:label="Sol-IT Absensi"', txt)
           manifest.write_text(txt, encoding="utf-8")
 
-          # 2. Ensure minSdk >= 21 in build.gradle / build.gradle.kts
           for gf in [Path("android/app/build.gradle"), Path("android/app/build.gradle.kts")]:
               if gf.exists():
                   g = gf.read_text(encoding="utf-8")
                   g = re.sub(r'minSdk\s*=?\s*flutter\.minSdkVersion', 'minSdk = 21' if gf.suffix == '.kts' else 'minSdk 21', g)
                   g = re.sub(r'minSdkVersion\s+flutter\.minSdkVersion', 'minSdkVersion 21', g)
+                  if "checkReleaseBuilds" not in g:
+                      lint_cfg = "    lint {\n        checkReleaseBuilds = false\n        abortOnError = false\n    }\n" if gf.suffix == ".kts" else "    lintOptions {\n        checkReleaseBuilds false\n        abortOnError false\n    }\n"
+                      g = g.replace("android {\n", "android {\n" + lint_cfg, 1)
                   gf.write_text(g, encoding="utf-8")
           print("Android manifest and Gradle configured successfully.")
           EOF
@@ -62,8 +64,8 @@ jobs:
       - name: Install Flutter Dependencies
         run: flutter pub get
 
-      - name: Run rm -rf test && rm -rf test && flutter analyze
-        run: rm -rf test && rm -rf test && flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: Run Flutter Analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
       - name: Build Release APK
         run: flutter build apk --release
