@@ -1,0 +1,76 @@
+name: Build Sol-IT Absensi Wajah APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Generate Android Platform Scaffolding
+        run: |
+          flutter create --platforms=android --org com.gsit --project-name sol_it_absensi_wajah .
+
+      - name: Configure Android Permissions & SDK Versions
+        run: |
+          python3 - << 'EOF'
+          from pathlib import Path
+          import re
+
+          # 1. Inject Camera & Location permissions into AndroidManifest.xml
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          txt = manifest.read_text(encoding="utf-8")
+          perms = '''    <uses-permission android:name="android.permission.CAMERA" />
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-feature android:name="android.hardware.camera" android:required="true" />
+              <uses-feature android:name="android.hardware.camera.front" android:required="false" />'''
+          if "android.permission.CAMERA" not in txt:
+              txt = txt.replace("<application", perms + "\n    <application", 1)
+          txt = re.sub(r'android:label="[^"]+"', 'android:label="Sol-IT Absensi"', txt)
+          manifest.write_text(txt, encoding="utf-8")
+
+          # 2. Ensure minSdk >= 21 in build.gradle / build.gradle.kts
+          for gf in [Path("android/app/build.gradle"), Path("android/app/build.gradle.kts")]:
+              if gf.exists():
+                  g = gf.read_text(encoding="utf-8")
+                  g = re.sub(r'minSdk\s*=?\s*flutter\.minSdkVersion', 'minSdk = 21' if gf.suffix == '.kts' else 'minSdk 21', g)
+                  g = re.sub(r'minSdkVersion\s+flutter\.minSdkVersion', 'minSdkVersion 21', g)
+                  gf.write_text(g, encoding="utf-8")
+          print("Android manifest and Gradle configured successfully.")
+          EOF
+
+      - name: Install Flutter Dependencies
+        run: flutter pub get
+
+      - name: Run Flutter Analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Build Release APK
+        run: flutter build apk --release
+
+      - name: Upload Downloadable APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sol-it-absensi-wajah-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
